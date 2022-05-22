@@ -12,7 +12,7 @@ import torch.optim as optim
 import torch.utils.data as Data
 
 # S: Symbol that shows starting of decoding input
-# E: Symbol that shows starting of decoding output
+# E: Symbol that shows ending of decoding output
 # P: Symbol that will fill in blank sequence if current batch data size is short than time steps
 sentences = [
     # enc_input           dec_input         dec_output
@@ -30,6 +30,9 @@ tgt_vocab_size = len(tgt_vocab)
 
 src_len = 5  # enc_input max sequence length
 tgt_len = 6  # dec_input(=dec_output) max sequence length
+
+num_epochs = 500
+log_freq = 100
 
 
 def make_data(sentences):
@@ -130,13 +133,14 @@ class myTransformer(nn.Module):
         # 维度变换
         dec_logits = self.projection(dec_outputs.transpose(0,1))  # dec_logits: [batch_size, tgt_len, tgt_vocab_size]
         return dec_logits.view(-1, dec_logits.size(-1)), None, None, None
+        # [batch_size * tgt_len, tgt_vocab_size]
 
 
 model = myTransformer().cuda()
 criterion = nn.CrossEntropyLoss(ignore_index=0)
 optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.99)
 
-for epoch in range(1000):
+for epoch in range(num_epochs):
     for enc_inputs, dec_inputs, dec_outputs in loader:
         '''
         enc_inputs: [batch_size, src_len]
@@ -147,7 +151,8 @@ for epoch in range(1000):
         # outputs: [batch_size * tgt_len, tgt_vocab_size]
         outputs, enc_self_attns, dec_self_attns, dec_enc_attns = model(enc_inputs, dec_inputs)
         loss = criterion(outputs, dec_outputs.view(-1))
-        print('Epoch:', '%04d' % (epoch + 1), 'loss =', '{:.6f}'.format(loss))
+        if (epoch+1)%log_freq == 0:
+            print('Epoch:', '%04d' % (epoch + 1), 'loss =', '{:.6f}'.format(loss))
 
         optimizer.zero_grad()
         loss.backward()
@@ -171,21 +176,21 @@ def greedy_decoder(model, enc_input, start_symbol):
     while not terminal:
         dec_input = torch.cat([dec_input.detach(),torch.tensor([[next_symbol]],dtype=enc_input.dtype).cuda()],-1)
         dec_outputs, _, _,_ = model(enc_input, dec_input)
-        #projected = model.projection(dec_outputs)
         prob = dec_outputs.max(dim=-1, keepdim=False)[1]
-        #print('prob:',prob)      #prob: tensor([1], device='cuda:0')
         next_word = prob.data[-1]
         next_symbol = next_word
-        if next_symbol == tgt_vocab["."]:
+        if next_symbol == tgt_vocab["E"]:
             terminal = True
         print(next_word)
-    return dec_input
+    return dec_input[0][1:]
 
 # Test
 enc_inputs, _, _ = next(iter(loader))
 enc_inputs = enc_inputs.cuda()
 for i in range(len(enc_inputs)):
-    greedy_dec_input = greedy_decoder(model, enc_inputs[i].view(1, -1), start_symbol=tgt_vocab["S"])
-    predict, _, _, _ = model(enc_inputs[i].view(1, -1), greedy_dec_input)
-    predict = predict.data.max(1, keepdim=True)[1]
-    print(enc_inputs[i], '->', [idx2word[n.item()] for n in predict.squeeze()])
+    greedy_dec_output = greedy_decoder(model, enc_inputs[i].view(1, -1), start_symbol=tgt_vocab["S"])
+    greedy_dec_output = greedy_dec_output.squeeze()
+    if len(greedy_dec_output) == 0:
+        print("output nothing")
+    else:
+        print(enc_inputs[i], '->', [idx2word[n.item()] for n in greedy_dec_output])
