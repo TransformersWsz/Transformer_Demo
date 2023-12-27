@@ -114,7 +114,6 @@ class myTransformer(nn.Module):
         b, src_len = enc_inputs.shape[0], enc_inputs.shape[1]
         b, tgt_len = dec_inputs.shape[0], dec_inputs.shape[1]
 
-        src_mask = self.transformer.generate_square_subsequent_mask(src_len).cuda()
         tgt_mask = self.transformer.generate_square_subsequent_mask(tgt_len).cuda()
         memory_mask = None
         src_key_padding_mask = enc_inputs.data.eq(0).cuda()                     # [N,S]
@@ -174,9 +173,13 @@ def greedy_decoder(model, enc_input, start_symbol):
     terminal = False
     next_symbol = start_symbol
     while not terminal:
+        # dec_input: bs, seq_len, 实际上bs=1
         dec_input = torch.cat([dec_input.detach(),torch.tensor([[next_symbol]],dtype=enc_input.dtype).cuda()],-1)
+        # dec_outputs: cur_seq_len, vocab_size, 这个做了维度转换，see line: 133
         dec_outputs, _, _,_ = model(enc_input, dec_input)
+        # [1]获取下标，[0]是具体值
         prob = dec_outputs.max(dim=-1, keepdim=False)[1]
+        # [-1]获取刚刚生成的token
         next_word = prob.data[-1]
         next_symbol = next_word
         if next_symbol == tgt_vocab["E"]:
